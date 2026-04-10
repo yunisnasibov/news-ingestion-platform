@@ -93,6 +93,11 @@ migrate_web_scraper() {
             -c "\COPY articles FROM STDIN WITH CSV HEADER" 2>/dev/null
     }
 
+    # Seq düzelt (PK hatası almamak için)
+    info "Sequence (id) güncelleniyor..."
+    psql -h "$NEW_HOST" -p "$NEW_PORT" -U "$NEW_USER" -d "$NEW_DB" \
+        -c "SELECT setval('articles_id_seq', (SELECT MAX(id) FROM articles))" > /dev/null
+
     local NEW_COUNT
     NEW_COUNT=$(psql -h "$NEW_HOST" -p "$NEW_PORT" -U "$NEW_USER" -d "$NEW_DB" -tAc \
         "SELECT COUNT(*) FROM articles" 2>/dev/null || echo "0")
