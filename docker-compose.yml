@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: news_ingestor
+      POSTGRES_USER: news_ingestor
+      POSTGRES_PASSWORD: news_ingestor
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U news_ingestor -d news_ingestor"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  control-api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://news_ingestor:news_ingestor@postgres:5432/news_ingestor
+      TELEGRAM_SESSION_DIR: /app/state/telethon
+      PYTHONPATH: /app:/app/src
+    command: uvicorn news_ingestor.control.api:app --host 0.0.0.0 --port 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./state/telethon:/app/state/telethon
+      - ./src:/app/src
+
+  telegram-worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://news_ingestor:news_ingestor@postgres:5432/news_ingestor
+      TELEGRAM_SESSION_DIR: /app/state/telethon
+      PYTHONPATH: /app:/app/src
+    command: python -m news_ingestor.cli run-telegram-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./state/telethon:/app/state/telethon
+      - ./src:/app/src
+
+  web-scraper:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SONXEBER_PGHOST: postgres
+      SONXEBER_PGPORT: "5432"
+      SONXEBER_PGUSER: news_ingestor
+      SONXEBER_PGPASSWORD: news_ingestor
+      SONXEBER_PGDATABASE: news_ingestor
+      SONXEBER_PGADMIN_DATABASE: news_ingestor
+      PYTHONPATH: /app:/app/src
+    command: python main.py poll
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./sonxeber_scraper:/app/sonxeber_scraper
+      - ./main.py:/app/main.py
+      - ./data:/app/data
+
+volumes:
+  postgres_data:
