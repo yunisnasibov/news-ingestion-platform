@@ -15,6 +15,7 @@ from news_ingestor.schemas import RawIngestPayload
 from news_ingestor.services.audit import build_audit_payload
 from news_ingestor.services.checkpoints import CheckpointService
 from news_ingestor.services.normalizer import NormalizerService
+from news_ingestor.services.runtime_state import RuntimeStateStore
 from news_ingestor.telegram.client import build_client
 from news_ingestor.telegram.serializer import serialize_message
 from news_ingestor.utils.text import sha256_text
@@ -56,6 +57,7 @@ class TelegramWorker:
         self.refresh_seconds = refresh_seconds
         self.client = build_client()
         self.normalizer = NormalizerService()
+        self.runtime_state = RuntimeStateStore()
         self.source_map: dict[int, Source] = {}
         self.source_identifier_map: dict[str, Source] = {}
 
@@ -76,13 +78,93 @@ class TelegramWorker:
             for source in sources:
                 try:
                     entity = await resolve_telegram_entity(self.client, source.identifier)
-                    source.display_name = source.display_name or getattr(entity, "title", "")
                     self.source_map[get_peer_id(entity)] = source
                     self.source_identifier_map[source.key] = source
-                    await repo.update_source_runtime(source.id, runtime_status="running")
+                    self.runtime_state.set(source.key, runtime_status="running")
                 except Exception as exc:
                     logger.exception("Telegram kaynagi resolve edilemedi: %s", source.key)
-                    await repo.update_source_runtime(source.id, runtime_status="error", last_error=str(exc))
+                    self.runtime_state.set(source.key, runtime_status="error", last_error=str(exc))
+
+    async def full_backfill_source(self, source: Source, *, batch_size: int = 100) -> int:
+        """Fetch the ENTIRE history of a Telegram channel going backwards from the oldest
+        known message (or from the latest if nothing is stored yet).
+
+        Uses offset_id to paginate: each batch asks for messages older than the
+        current oldest ID we have seen.  The loop ends when Telegram returns no
+        more messages.  Already-stored messages are upserted harmlessly.
+
+        Returns the total number of messages persisted in this run.
+        """
+        total = 0
+        async with session_scope() as session:
+            repo = Repository(session)
+            source = await repo.get_source_by_key(source.key)
+            if source is None:
+                return 0
+            # Single efficient SQL MIN() instead of loading all IDs into memory
+            min_id_known = await repo.min_source_item_id(source.id)
+
+        entity = await resolve_telegram_entity(self.client, source.identifier)
+        # Start from the known minimum (or 0 to get everything including newest)
+        offset_id = min_id_known  # fetch messages with id < min_id_known (older)
+
+        logger.info("Full backfill başladı: %s (offset_id=%d)", source.key, offset_id)
+
+        while True:
+            batch = []
+            kwargs = dict(limit=batch_size, reverse=False)
+            if offset_id > 0:
+                kwargs["offset_id"] = offset_id
+
+            async for message in self.client.iter_messages(entity, **kwargs):
+                batch.append(message)
+
+            if not batch:
+                break  # no more history
+
+            async with session_scope() as session:
+                repo = Repository(session)
+                checkpoint_service = CheckpointService(repo)
+                source_fresh = await repo.get_source_by_key(source.key)
+                if source_fresh is None:
+                    break
+                for message in reversed(batch):  # oldest → newest within batch
+                    await self._persist_message(repo, checkpoint_service, source_fresh, message)
+                    total += 1
+                    self.runtime_state.heartbeat(source.key)
+
+            ids = [getattr(m, "id", 0) for m in batch]
+            new_min = min(ids)
+            logger.info(
+                "Full backfill batch: %s | messages=%d | oldest_id=%d | total=%d",
+                source.key, len(batch), new_min, total,
+            )
+            print(
+                f"telegram_backfill_progress source={source.key}"
+                f" batch={len(batch)} oldest_id={new_min} total_persisted={total}",
+                flush=True,
+            )
+
+            if offset_id > 0 and new_min >= offset_id:
+                break  # no progress — already at the beginning
+
+            offset_id = new_min  # next page: fetch messages older than this
+
+        logger.info("Full backfill tamamlandi: %s | total=%d", source.key, total)
+        print(f"telegram_backfill_complete source={source.key} total_persisted={total}", flush=True)
+        return total
+
+    async def backfill_all_sources_full(self) -> None:
+        """Run full_backfill_source for every active Telegram channel sequentially."""
+        async with session_scope() as session:
+            repo = Repository(session)
+            sources = await repo.list_sources(source_type="telegram_channel", desired_state="running")
+        for source in sources:
+            try:
+                await self.full_backfill_source(source)
+            except Exception as exc:
+                logger.exception("Full backfill hatasi: %s", source.key)
+                self.runtime_state.set(source.key, runtime_status="error", last_error=str(exc))
 
     async def ingest_source_history(self, source: Source, *, limit: int = 0) -> None:
         async with session_scope() as session:
@@ -100,14 +182,14 @@ class TelegramWorker:
                     latest_messages.append(message)
                 for message in reversed(latest_messages):
                     await self._persist_message(repo, checkpoint_service, source, message)
-                    await repo.heartbeat(source.id)
+                    self.runtime_state.heartbeat(source.key)
                 return
 
             async for message in self.client.iter_messages(entity, min_id=checkpoint, reverse=True, limit=backfill_limit):
                 if getattr(message, "id", 0) <= checkpoint:
                     continue
                 await self._persist_message(repo, checkpoint_service, source, message)
-                await repo.heartbeat(source.id)
+                self.runtime_state.heartbeat(source.key)
 
     async def _persist_message(self, repo: Repository, checkpoint_service: CheckpointService, source: Source, message) -> None:
         fetched_at = utc_now()
@@ -122,7 +204,7 @@ class TelegramWorker:
             source_event_type="telegram_message",
             fetched_at=fetched_at,
             observed_at=serialized["date"] or fetched_at,
-            raw_payload=serialized["raw"],
+            raw_payload={},
             raw_text=serialized["text"],
             origin_url=serialized["permalink"],
             content_hash=sha256_text(serialized["text"]),
@@ -137,7 +219,6 @@ class TelegramWorker:
                 {
                     **serialized,
                     "fetched_at": fetched_at,
-                    "observed_at": serialized["date"] or fetched_at,
                 },
             )
             await repo.apply_normalized_news(news_record.id, source=source, payload=normalized)
@@ -164,14 +245,10 @@ class TelegramWorker:
                 if source is None or source.desired_state != "running":
                     return
                 await self._persist_message(repo, checkpoint_service, source, message)
-                await repo.update_source_runtime(source.id, runtime_status="running")
+                self.runtime_state.set(source.key, runtime_status="running")
         except Exception as exc:
             logger.exception("Canli Telegram mesaji islenemedi: %s", source.key)
-            async with session_scope() as session:
-                repo = Repository(session)
-                source_db = await repo.get_source_by_key(source.key)
-                if source_db is not None:
-                    await repo.update_source_runtime(source_db.id, runtime_status="error", last_error=str(exc))
+            self.runtime_state.set(source.key, runtime_status="error", last_error=str(exc))
 
     async def audit_source(self, source_key: str, *, limit: int = 10) -> dict:
         async with session_scope() as session:
@@ -241,8 +318,4 @@ class TelegramWorker:
                 await self.ingest_source_history(source)
             except Exception as exc:
                 logger.exception("Backfill hatasi: %s", source.key)
-                async with session_scope() as session:
-                    repo = Repository(session)
-                    source_db = await repo.get_source_by_key(source.key)
-                    if source_db is not None:
-                        await repo.update_source_runtime(source_db.id, runtime_status="error", last_error=str(exc))
+                self.runtime_state.set(source.key, runtime_status="error", last_error=str(exc))

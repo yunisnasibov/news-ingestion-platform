@@ -10,6 +10,7 @@ from news_ingestor.db.schema import initialize_database
 from news_ingestor.db.repository import Repository
 from news_ingestor.db.session import session_scope
 from news_ingestor.logging import configure_logging
+from news_ingestor.services.runtime_state import RuntimeStateStore
 from news_ingestor.settings import get_settings
 from news_ingestor.telegram.client import build_client
 from news_ingestor.telegram.ingestor import TelegramWorker
@@ -67,6 +68,24 @@ def run_telegram_worker() -> None:
     asyncio.run(_run())
 
 
+@app.command("backfill-all-telegram")
+def backfill_all_telegram() -> None:
+    """Run full historical backfill for ALL active Telegram channels, then exit."""
+    configure_logging()
+
+    async def _backfill():
+        settings = get_settings()
+        worker = TelegramWorker(refresh_seconds=settings.telegram_refresh_seconds)
+        await worker.init_db()
+        await worker.ensure_authorized()
+        await worker.refresh_sources()
+        await worker.backfill_all_sources_full()
+        await worker.client.disconnect()
+
+    asyncio.run(_backfill())
+    typer.echo("Telegram full backfill completed.")
+
+
 @app.command("add-telegram-source")
 def add_telegram_source(identifier: str) -> None:
     configure_logging()
@@ -117,6 +136,7 @@ def pause_source(source_key: str) -> None:
             source = await repo.set_source_state(source_key, "paused")
             if source is None:
                 raise typer.Exit(code=1)
+            RuntimeStateStore().set(source.key, runtime_status="paused")
             typer.echo(f"Paused {source.key}")
 
     asyncio.run(_pause())
@@ -132,6 +152,7 @@ def resume_source(source_key: str) -> None:
             source = await repo.set_source_state(source_key, "running")
             if source is None:
                 raise typer.Exit(code=1)
+            RuntimeStateStore().set(source.key, runtime_status="idle")
             typer.echo(f"Running {source.key}")
 
     asyncio.run(_resume())
@@ -146,6 +167,7 @@ def source_status() -> None:
             repo = Repository(session)
             rows = await repo.list_sources()
             summary = await repo.status_summary()
+            RuntimeStateStore().annotate(rows)
             typer.echo(json.dumps(summary, ensure_ascii=False, indent=2))
             typer.echo(
                 json.dumps(

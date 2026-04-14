@@ -27,7 +27,7 @@ class TelegramOnboardingService:
                 identifier=clean_identifier,
                 display_name=getattr(entity, "title", clean_identifier),
             )
-            await repo.update_source_runtime(source.id, runtime_status="idle")
+            self.worker.runtime_state.set(source.key, runtime_status="idle")
             source_count = await repo.count_sources(source_type="telegram_channel")
 
         await self.worker.refresh_sources()

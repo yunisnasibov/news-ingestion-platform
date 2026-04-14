@@ -12,3 +12,9 @@ data/*.log
 data/*.pid
 data/*.db
 data/*.sqlite3
+data/locks/
+
+# Development scratch files
+scratch_test*.py
+scratch/
+full_system_test.py

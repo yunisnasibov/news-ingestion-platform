@@ -10,6 +10,7 @@ from news_ingestor.db.schema import initialize_database
 from news_ingestor.db.repository import Repository
 from news_ingestor.db.session import session_scope
 from news_ingestor.logging import configure_logging
+from news_ingestor.services.runtime_state import RuntimeStateStore
 
 
 class TelegramSourceCreate(BaseModel):
@@ -24,6 +25,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="news-ingestor-control", lifespan=lifespan)
+runtime_state = RuntimeStateStore()
 
 
 @app.get("/health")
@@ -43,6 +45,7 @@ async def sources():
     async with session_scope() as session:
         repo = Repository(session)
         rows = await repo.list_sources()
+        runtime_state.annotate(rows)
         return [
             {
                 "key": source.key,
@@ -110,6 +113,7 @@ async def pause_source(source_key: str):
         source = await repo.set_source_state(source_key, "paused")
         if source is None:
             raise HTTPException(status_code=404, detail="Source not found")
+        runtime_state.set(source.key, runtime_status="paused")
         return {"status": "paused", "source_key": source.key}
 
 
@@ -120,4 +124,5 @@ async def resume_source(source_key: str):
         source = await repo.set_source_state(source_key, "running")
         if source is None:
             raise HTTPException(status_code=404, detail="Source not found")
+        runtime_state.set(source.key, runtime_status="idle")
         return {"status": "running", "source_key": source.key}

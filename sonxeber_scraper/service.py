@@ -6,6 +6,7 @@ from typing import Protocol
 from .config import Settings
 from .db import Database
 from .models import ListingCandidate, SyncSummary
+from .source_locks import SourceLockError, SourceLockManager
 from .utils import normalize_url, utc_now_iso
 
 
@@ -32,11 +33,35 @@ class SiteSyncService:
         self.settings = settings
         self.database = database
         self.client = client
+        self.locks = SourceLockManager(settings)
 
     def sync_once(self, page_count: int | None = None) -> SyncSummary:
         started_at = utc_now_iso()
         summary = SyncSummary()
         effective_page_count = page_count or self.settings.listing_page_count
+
+        if self.locks.has_backfill_lock(self.client.source_name):
+            summary.skipped_due_to_backfill = True
+            self.database.record_sync_run(self.client.source_name, summary, started_at)
+            return summary
+
+        try:
+            with self.locks.live_lock(self.client.source_name):
+                return self._run_sync_once(summary, effective_page_count, started_at)
+        except SourceLockError as exc:
+            if "backfill_active" in str(exc):
+                summary.skipped_due_to_backfill = True
+            else:
+                summary.errors.append(str(exc))
+            self.database.record_sync_run(self.client.source_name, summary, started_at)
+            return summary
+
+    def _run_sync_once(
+        self,
+        summary: SyncSummary,
+        effective_page_count: int,
+        started_at: str,
+    ) -> SyncSummary:
 
         candidates, listing_errors = self.client.discover_listing_candidates(effective_page_count)
         summary.errors.extend(listing_errors)
@@ -100,6 +125,12 @@ class SiteSyncService:
             time.sleep(self.settings.poll_interval_seconds)
 
     def _format_summary(self, summary: SyncSummary, page_count: int) -> str:
+        if summary.skipped_due_to_backfill:
+            return (
+                "sync_skipped"
+                f" source={self.client.source_name}"
+                " reason=backfill_lock_active"
+            )
         error_suffix = f", errors={len(summary.errors)}" if summary.errors else ""
         return (
             "sync_complete"

@@ -31,9 +31,9 @@ class NormalizerService:
         title = first_non_empty(payload.get("title", ""), text.split(". ")[0], text[:160], fallback_title)
         body_text = fallback_body_text
         canonical_url = canonicalize_url(payload.get("permalink", ""))
-        published_at = payload.get("date") or payload.get("observed_at")
+        published_at = payload.get("date") or payload.get("fetched_at")
         if not isinstance(published_at, datetime):
-            published_at = payload["observed_at"]
+            published_at = payload["fetched_at"]
 
         missing_fields: list[str] = []
         quality_flags: list[str] = []

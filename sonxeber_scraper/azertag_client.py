@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import time
 
 import requests
@@ -62,7 +63,8 @@ class AzertagClient:
         candidates: dict[str, ListingCandidate] = {}
         errors: list[str] = []
 
-        for article_id in range(max_article_id + 1, max_article_id + window + 1):
+
+        def _probe(article_id: int) -> ListingCandidate | Exception | None:
             article_url = f"{self.base_url}/az/xeber/{article_id}"
             try:
                 response = self._request(
@@ -72,21 +74,117 @@ class AzertagClient:
                     allow_server_errors=True,
                 )
                 if response.status_code >= 500:
-                    continue
+                    return None
                 soup = BeautifulSoup(response.content, "lxml", from_encoding="utf-8")
                 final_url = normalize_url(str(response.url))
                 if self._is_error_page(soup):
-                    continue
-                candidate = self._build_candidate_from_detail(
+                    return None
+                return self._build_candidate_from_detail(
                     soup,
                     final_url,
                     f"id-probe-{article_id}",
                 )
-                self._merge_candidate(candidates, candidate)
             except Exception as exc:
-                errors.append(f"probe:{article_id}: {exc}")
+                return exc
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(window, 20)) as executor:
+            futures = {executor.submit(_probe, i): i for i in range(max_article_id + 1, max_article_id + window + 1)}
+            for future in concurrent.futures.as_completed(futures):
+                article_id = futures[future]
+                res = future.result()
+                if isinstance(res, Exception):
+                    errors.append(f"probe:{article_id}: {res}")
+                elif res is not None:
+                    self._merge_candidate(candidates, res)
 
         return candidates, errors
+
+    def discover_backward_probe_articles(
+        self,
+        min_article_id: int,
+        window: int,
+    ) -> tuple[dict[str, "ArticleRecord"], list[str]]:
+        """Fetch articles by decrementing IDs backward. Returns full ArticleRecord
+        objects in a single HTTP pass — no second round-trip needed in backfill."""
+        articles: dict[str, ArticleRecord] = {}
+        errors: list[str] = []
+
+        def _fetch(article_id: int) -> ArticleRecord | Exception | None:
+            article_url = f"{self.base_url}/az/xeber/{article_id}"
+            try:
+                response = self._request(
+                    article_url,
+                    timeout=self.settings.request_timeout_seconds,
+                    allow_redirects=True,
+                    allow_server_errors=True,
+                )
+                if response.status_code >= 500:
+                    return None
+                soup = BeautifulSoup(response.content, "lxml", from_encoding="utf-8")
+                final_url = normalize_url(str(response.url))
+                if self._is_error_page(soup):
+                    return None
+
+                source_article_id = extract_azertag_article_id(final_url)
+                if source_article_id is None:
+                    return None
+
+                title = self._extract_title(soup)
+                if not title:
+                    return None
+
+                category = self._extract_category(soup) or "uncategorized"
+                published_date_raw = self._extract_date_text(soup)
+                published_at = parse_azertag_datetime(published_date_raw) or published_date_raw
+
+                content_container = soup.select_one(".news-view-body")
+                content_text = self._extract_content_text(content_container)
+                teaser = self._extract_meta_property(soup, "og:description") or title
+                if not content_text:
+                    content_text = teaser
+
+                main_image = self._extract_image_url(soup.select_one(".preview-news-view img"))
+                gallery_image_urls = unique_preserving_order(
+                    [main_image, self.default_image_url]
+                )
+                hero_image_url = gallery_image_urls[0] if gallery_image_urls else self.default_image_url
+                video_embed_url = self._extract_video_url(soup)
+                content_hash = sha256_text(content_text)
+
+                return ArticleRecord(
+                    source_name=self.source_name,
+                    source_article_id=source_article_id,
+                    slug=str(source_article_id),
+                    url=normalize_url(final_url),
+                    canonical_url=normalize_url(final_url),
+                    title=title,
+                    category=category,
+                    published_date_raw=published_date_raw,
+                    published_at=published_at,
+                    list_date_text=published_date_raw,
+                    teaser=teaser,
+                    content_text=content_text,
+                    hero_image_url=hero_image_url,
+                    gallery_image_urls=gallery_image_urls,
+                    video_embed_url=video_embed_url,
+                    list_image_url=hero_image_url,
+                    discovery_sources=[f"id-backward-probe-{article_id}"],
+                    content_hash=content_hash,
+                )
+            except Exception as exc:
+                return exc
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(window, 20)) as executor:
+            futures = {executor.submit(_fetch, i): i for i in range(min_article_id - 1, min_article_id - window - 1, -1)}
+            for future in concurrent.futures.as_completed(futures):
+                article_id = futures[future]
+                res = future.result()
+                if isinstance(res, Exception):
+                    errors.append(f"backward-probe:{article_id}: {res}")
+                elif res is not None:
+                    articles[res.url] = res
+
+        return articles, errors
 
     def fetch_article(self, candidate: ListingCandidate) -> ArticleRecord:
         soup, final_url = self._get_soup(candidate.url)
@@ -145,6 +243,15 @@ class AzertagClient:
         for page_number in range(2, page_count + 1):
             urls.append((f"archive-page-{page_number}", f"{self.base_url}/az/arxiv/{page_number}"))
         return urls
+
+    def archive_page_url(self, page_number: int) -> str:
+        if page_number <= 1:
+            return f"{self.base_url}/az"
+        return f"{self.base_url}/az/arxiv/{page_number}"
+
+    def discover_archive_page(self, page_number: int) -> list[ListingCandidate]:
+        label = "archive-page-1" if page_number <= 1 else f"archive-page-{page_number}"
+        return self._fetch_listing_candidates(label, self.archive_page_url(page_number))
 
     def _fetch_listing_candidates(self, label: str, url: str) -> list[ListingCandidate]:
         soup, _ = self._get_soup(url)

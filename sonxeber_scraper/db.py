@@ -113,6 +113,7 @@ class Database:
                 image_url TEXT NOT NULL DEFAULT '',
                 published_at TEXT NOT NULL DEFAULT '',
                 fetched_at TIMESTAMPTZ NOT NULL,
+                content_hash TEXT NOT NULL DEFAULT '',
                 UNIQUE(source_name, source_article_id)
             )
             """
@@ -123,9 +124,25 @@ class Database:
             ON articles(source_name, article_url)
             """
         )
+        # Add content_hash column if missing (migration for existing DBs)
+        columns = {
+            row["column_name"]
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'articles'
+                """
+            ).fetchall()
+        }
+        if "content_hash" not in columns:
+            connection.execute("ALTER TABLE articles ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
+
+
 
     def _drop_auxiliary_tables(self) -> None:
         connection = self._require_connection()
+        # Clean up any auxiliary tables that shouldn't exist
         connection.execute("DROP TABLE IF EXISTS article_meta")
         connection.execute("DROP TABLE IF EXISTS sync_runs")
 
@@ -190,6 +207,19 @@ class Database:
         if row is None or row["max_id"] is None:
             return None
         return int(row["max_id"])
+
+    def get_min_source_article_id(self, source_name: str) -> int | None:
+        row = self._require_connection().execute(
+            """
+            SELECT MIN(source_article_id) AS min_id
+            FROM articles
+            WHERE source_name = %s
+            """,
+            (source_name,),
+        ).fetchone()
+        if row is None or row["min_id"] is None:
+            return None
+        return int(row["min_id"])
 
     def get_existing_article_ids(self, source_name: str, article_ids: list[int]) -> set[int]:
         if not article_ids:
@@ -257,8 +287,9 @@ class Database:
                         article_url,
                         image_url,
                         published_at,
-                        fetched_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        fetched_at,
+                        content_hash
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -271,6 +302,7 @@ class Database:
                         record.hero_image_url,
                         record.published_at or record.published_date_raw,
                         now,
+                        record.content_hash,
                     ),
                 )
                 return status
@@ -287,7 +319,8 @@ class Database:
                     article_url = %s,
                     image_url = %s,
                     published_at = %s,
-                    fetched_at = %s
+                    fetched_at = %s,
+                    content_hash = %s
                 WHERE id = %s
                 """,
                 (
@@ -299,13 +332,15 @@ class Database:
                     record.hero_image_url,
                     record.published_at or record.published_date_raw,
                     now,
+                    record.content_hash,
                     article_id,
                 ),
             )
             return status
 
     def record_sync_run(self, source_name: str, summary: SyncSummary, started_at: str) -> None:
-        _ = (source_name, summary, started_at)
+        # Sync results are logged to stdout — DB stays clean with only data tables.
+        pass
 
     def get_article_count(self, source_name: str | None = None) -> int:
         if source_name is None:

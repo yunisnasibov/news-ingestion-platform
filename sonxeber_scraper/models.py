@@ -67,4 +67,5 @@ class SyncSummary:
     new_articles: int = 0
     updated_articles: int = 0
     skipped_existing_articles: int = 0
+    skipped_due_to_backfill: bool = False
     errors: list[str] = field(default_factory=list)

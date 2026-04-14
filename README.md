@@ -150,6 +150,30 @@ python main.py stop
 python main.py stats
 ```
 
+### Tarixi Backfill əmrləri
+
+```bash
+# Tövsiyə edilən təhlükəsiz yol:
+# live poll işlək qalsın, eyni source üçün backfill ayrıca run olsun.
+# web-scraper həmin source-u backfill lock aktiv olduqda avtomatik skip edəcək.
+python main.py backfill --source azertag.az
+
+# Kiçik yoxlama run-u
+python main.py backfill --source azertag.az --max-pages 1
+
+# Daha nəzarətli tail stop ayarları ilə
+python main.py backfill --source azertag.az --stop-empty-pages 5 --stop-repeated-pages 2
+
+# Standalone ssenari:
+# əvvəl historical backfill, sonra eyni source üçün foreground live poll
+python main.py bootstrap --source azertag.az
+```
+
+Qeyd:
+- `backfill` hazırda yalnız `azertag.az` üçün aktivdir.
+- Tövsiyə edilən production yolu `backfill` komandasıdır; mövcud live poll digər source-lar üçün işləməyə davam edir.
+- Eyni source üçün live sync və backfill arasında fayl-lock izoləsiyası var.
+
 ## Dəstəklənən Mənbələr
 
 ### Telegram Kanalları
