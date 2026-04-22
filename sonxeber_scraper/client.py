@@ -240,7 +240,7 @@ class SonxeberClient:
     def _get_soup(self, url: str) -> tuple[BeautifulSoup, str]:
         response = self.session.get(url, timeout=self.settings.request_timeout_seconds)
         response.raise_for_status()
-        return BeautifulSoup(response.text, "lxml"), response.url
+        return BeautifulSoup(response.content, "lxml"), response.url
 
     def _extract_canonical_url(self, soup: BeautifulSoup, final_url: str) -> str:
         node = soup.select_one('link[rel="canonical"]')

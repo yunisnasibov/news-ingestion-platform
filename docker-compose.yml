@@ -44,6 +44,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://news_ingestor:news_ingestor@postgres:5432/news_ingestor
       TELEGRAM_SESSION_DIR: /app/state/telethon
       PYTHONPATH: /app:/app/src
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     command: python -m news_ingestor.cli run-telegram-worker
     depends_on:
       postgres:
@@ -64,8 +67,13 @@ services:
       SONXEBER_PGPASSWORD: news_ingestor
       SONXEBER_PGDATABASE: news_ingestor
       SONXEBER_PGADMIN_DATABASE: news_ingestor
+      SONXEBER_REQUEST_RETRY_TOTAL: "4"
+      SONXEBER_REQUEST_RETRY_BACKOFF_SECONDS: "1.0"
       PYTHONPATH: /app:/app/src
-    command: python main.py poll
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    command: python main.py bootstrap --source all
     depends_on:
       postgres:
         condition: service_healthy

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -25,10 +26,14 @@ class SourceLockPaths:
 class SourceLockManager:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.lock_dir = self.settings.project_root / "data" / "locks"
+        default_lock_dir = self.settings.project_root / "data" / "locks"
+        self.lock_dir = Path(os.getenv("SONXEBER_LOCK_DIR", str(default_lock_dir)))
         self.lock_dir.mkdir(parents=True, exist_ok=True)
         self.lock_heartbeat_interval_seconds = 1.0
         self.lock_stale_after_seconds = 5.0
+        self.current_hostname = socket.gethostname()
+        self.current_pid = os.getpid()
+        self.current_pid_start_time = self._read_process_start_time(self.current_pid)
         self._cleanup_stale_locks()
 
     def paths_for(self, source_name: str) -> SourceLockPaths:
@@ -115,7 +120,9 @@ class SourceLockManager:
         payload = {
             "source_name": source_name,
             "lock_kind": lock_kind,
-            "pid": os.getpid(),
+            "pid": self.current_pid,
+            "hostname": self.current_hostname,
+            "pid_start_time": self.current_pid_start_time,
             "created_at": int(time.time()),
         }
         if path.exists() and self._is_lock_stale(path):
@@ -139,11 +146,56 @@ class SourceLockManager:
 
     def _is_lock_stale(self, path: Path) -> bool:
         try:
-            return (time.time() - path.stat().st_mtime) > self.lock_stale_after_seconds
+            stat = path.stat()
         except FileNotFoundError:
             return False
+
+        if (time.time() - stat.st_mtime) > self.lock_stale_after_seconds:
+            return True
+
+        payload = self._read_lock_payload(path)
+        if not payload:
+            return False
+
+        lock_hostname = str(payload.get("hostname") or "")
+        if lock_hostname != self.current_hostname:
+            return False
+
+        lock_pid = payload.get("pid")
+        try:
+            lock_pid_int = int(lock_pid)
+        except (TypeError, ValueError):
+            return True
+
+        current_start = self._read_process_start_time(lock_pid_int)
+        if not current_start:
+            return True
+
+        saved_start = str(payload.get("pid_start_time") or "")
+        if not saved_start:
+            return True
+        if current_start != saved_start:
+            return True
+        return False
 
     def _cleanup_stale_locks(self) -> None:
         for path in self.lock_dir.glob("*.lock"):
             if self._is_lock_stale(path):
                 self._remove_lock(path)
+
+    def _read_lock_payload(self, path: Path) -> dict[str, object]:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    @staticmethod
+    def _read_process_start_time(pid: int) -> str:
+        try:
+            stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except OSError:
+            return ""
+        parts = stat_text.split()
+        if len(parts) <= 21:
+            return ""
+        return parts[21]

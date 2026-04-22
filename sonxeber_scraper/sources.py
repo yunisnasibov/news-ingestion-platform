@@ -10,6 +10,7 @@ from .config import Settings
 from .ikisahil_client import IkiSahilClient
 from .islam_client import IslamClient
 from .islamazeri_client import IslamAzeriClient
+from .iqtisadiyyat_client import IqtisadiyyatClient
 from .milli_client import MilliClient
 from .metbuat_client import MetbuatClient
 from .one_news_client import OneNewsClient
@@ -19,7 +20,6 @@ from .sia_client import SiaClient
 from .siyasetinfo_client import SiyasetinfoClient
 from .teleqraf_client import TeleqrafClient
 from .xeberler_client import XeberlerClient
-from .yeniazerbaycan_client import YeniAzerbaycanClient
 from .yenixeber_client import YenixeberClient
 
 
@@ -33,6 +33,7 @@ def build_clients(settings: Settings) -> dict[str, object]:
         IkiSahilClient.source_name: IkiSahilClient(settings),
         IslamClient.source_name: IslamClient(settings),
         IslamAzeriClient.source_name: IslamAzeriClient(settings),
+        IqtisadiyyatClient.source_name: IqtisadiyyatClient(settings),
         MilliClient.source_name: MilliClient(settings),
         MetbuatClient.source_name: MetbuatClient(settings),
         OneNewsClient.source_name: OneNewsClient(settings),
@@ -42,7 +43,6 @@ def build_clients(settings: Settings) -> dict[str, object]:
         SonxeberClient.source_name: SonxeberClient(settings),
         TeleqrafClient.source_name: TeleqrafClient(settings),
         XeberlerClient.source_name: XeberlerClient(settings),
-        YeniAzerbaycanClient.source_name: YeniAzerbaycanClient(settings),
         OxuClient.source_name: OxuClient(settings),
         YenixeberClient.source_name: YenixeberClient(settings),
     }

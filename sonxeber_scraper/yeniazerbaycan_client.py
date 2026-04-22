@@ -37,6 +37,7 @@ class YeniAzerbaycanClient:
             f"{self.base_url}/front/assets/images/yeni-azerbaycan-logo-2021-11.png"
         )
         self.session = requests.Session()
+        self.blocked_error_prefix = "source_blocked"
         self.session.headers.update(
             {
                 "User-Agent": settings.user_agent,
@@ -59,12 +60,18 @@ class YeniAzerbaycanClient:
             for candidate in self._discover_from_sitemap(page_count):
                 self._merge_candidate(candidates, candidate)
         except Exception as exc:
+            blocked_error = self._blocked_listing_error("sitemap", exc)
+            if blocked_error:
+                return candidates, [blocked_error]
             errors.append(f"listing:sitemap: {exc}")
 
         try:
             for candidate in self._discover_from_rss(page_count):
                 self._merge_candidate(candidates, candidate)
         except Exception as exc:
+            blocked_error = self._blocked_listing_error("rss", exc)
+            if blocked_error:
+                return candidates, [blocked_error]
             errors.append(f"listing:rss: {exc}")
 
         for label, url in self._listing_urls(page_count):
@@ -72,12 +79,18 @@ class YeniAzerbaycanClient:
                 for candidate in self._discover_from_listing_page(label, url):
                     self._merge_candidate(candidates, candidate)
             except Exception as exc:
+                blocked_error = self._blocked_listing_error(label, exc)
+                if blocked_error:
+                    return candidates, [blocked_error]
                 errors.append(f"listing:{label}: {exc}")
 
         try:
             for candidate in self._discover_from_homepage(page_count):
                 self._merge_candidate(candidates, candidate)
         except Exception as exc:
+            blocked_error = self._blocked_listing_error("homepage", exc)
+            if blocked_error:
+                return candidates, [blocked_error]
             errors.append(f"listing:homepage: {exc}")
 
         return candidates, errors
@@ -187,11 +200,7 @@ class YeniAzerbaycanClient:
         )
 
     def _discover_from_sitemap(self, page_count: int) -> list[ListingCandidate]:
-        response = self.session.get(
-            self.sitemap_url,
-            timeout=self.settings.request_timeout_seconds,
-        )
-        response.raise_for_status()
+        response = self._request(self.sitemap_url)
         root = ET.fromstring(response.content)
 
         candidates: list[ListingCandidate] = []
@@ -227,11 +236,7 @@ class YeniAzerbaycanClient:
         return candidates
 
     def _discover_from_rss(self, page_count: int) -> list[ListingCandidate]:
-        response = self.session.get(
-            self.rss_url,
-            timeout=self.settings.request_timeout_seconds,
-        )
-        response.raise_for_status()
+        response = self._request(self.rss_url)
         root = ET.fromstring(response.content)
 
         candidates: list[ListingCandidate] = []
@@ -359,13 +364,32 @@ class YeniAzerbaycanClient:
         return candidates
 
     def _get_soup(self, url: str) -> tuple[BeautifulSoup, str]:
+        response = self._request(url, allow_redirects=True)
+        return BeautifulSoup(response.content, "lxml"), self._normalize_article_url(response.url)
+
+    def _request(self, url: str, *, allow_redirects: bool = True) -> requests.Response:
         response = self.session.get(
             url,
             timeout=self.settings.request_timeout_seconds,
-            allow_redirects=True,
+            allow_redirects=allow_redirects,
         )
+        self._raise_for_blocked_response(response, url)
         response.raise_for_status()
-        return BeautifulSoup(response.content, "lxml"), self._normalize_article_url(response.url)
+        return response
+
+    def _raise_for_blocked_response(self, response: requests.Response, url: str) -> None:
+        if response.status_code == 415:
+            raise ValueError(f"{self.blocked_error_prefix}: unsupported_media_type url={url}")
+
+        body_preview = response.text[:1200].lower()
+        if "one moment, please" in body_preview or "unsupported media type" in body_preview:
+            raise ValueError(f"{self.blocked_error_prefix}: anti_bot_challenge url={url}")
+
+    def _blocked_listing_error(self, label: str, exc: Exception) -> str | None:
+        message = str(exc)
+        if self.blocked_error_prefix not in message:
+            return None
+        return f"listing:{label}: {message}"
 
     def _normalize_article_url(self, url: str) -> str:
         absolute_url = normalize_url(make_absolute_url(f"{self.base_url}/", url))

@@ -4,6 +4,7 @@ import asyncio
 import json
 
 import typer
+from sqlalchemy import text
 from telethon.errors import SessionPasswordNeededError
 
 from news_ingestor.db.schema import initialize_database
@@ -11,6 +12,7 @@ from news_ingestor.db.repository import Repository
 from news_ingestor.db.session import session_scope
 from news_ingestor.logging import configure_logging
 from news_ingestor.services.runtime_state import RuntimeStateStore
+from news_ingestor.services.telegram_backfill_state import TelegramBackfillStateStore
 from news_ingestor.settings import get_settings
 from news_ingestor.telegram.client import build_client
 from news_ingestor.telegram.ingestor import TelegramWorker
@@ -22,6 +24,43 @@ app = typer.Typer(no_args_is_help=True)
 
 async def _init_db() -> None:
     await initialize_database()
+
+
+async def _reset_content() -> dict[str, int]:
+    await initialize_database()
+    async with session_scope() as session:
+        news_rows = int((await session.execute(text("SELECT COUNT(*) FROM news WHERE record_kind = 'news'"))).scalar_one() or 0)
+        source_rows = int((await session.execute(text("SELECT COUNT(*) FROM news WHERE record_kind = 'source'"))).scalar_one() or 0)
+        articles_table_exists = bool(
+            (
+                await session.execute(
+                    text(
+                        """
+                        SELECT EXISTS (
+                          SELECT 1
+                          FROM information_schema.tables
+                          WHERE table_schema = 'public'
+                            AND table_name = 'articles'
+                        )
+                        """
+                    )
+                )
+            ).scalar_one()
+        )
+        articles_rows = 0
+        if articles_table_exists:
+            articles_rows = int((await session.execute(text("SELECT COUNT(*) FROM articles"))).scalar_one() or 0)
+            await session.execute(text("TRUNCATE TABLE articles RESTART IDENTITY"))
+        await session.execute(text("DELETE FROM news WHERE record_kind = 'news'"))
+        await session.execute(text("UPDATE news SET last_message_id = 0 WHERE record_kind = 'source'"))
+
+    RuntimeStateStore().clear_all()
+    TelegramBackfillStateStore().clear_all()
+    return {
+        "cleared_news_rows": news_rows,
+        "cleared_article_rows": articles_rows,
+        "preserved_source_rows": source_rows,
+    }
 
 
 @app.command("init-db")
@@ -156,6 +195,24 @@ def resume_source(source_key: str) -> None:
             typer.echo(f"Running {source.key}")
 
     asyncio.run(_resume())
+
+
+@app.command("reset-content")
+def reset_content(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Delete stored articles and news rows while preserving Telegram source definitions.",
+    ),
+) -> None:
+    configure_logging()
+    if not force and not typer.confirm(
+        "Stored articles and ingested news will be deleted, but Telegram source definitions will be kept. Continue?"
+    ):
+        raise typer.Abort()
+
+    result = asyncio.run(_reset_content())
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 @app.command("source-status")

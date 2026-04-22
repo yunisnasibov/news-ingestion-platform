@@ -1,0 +1,22 @@
+[historical] 2026-04-22 02:14:56 source=azertag.az max_pages=0 stop_empty=3
+[historical] 2026-04-22 03:03:37 source=azertag.az max_pages=0 stop_empty=3
+backfill_complete source=azertag.az pages_scanned=3669 last_page=3924259 listing_candidates=835 inserted_articles=835 updated_articles=0 skipped_existing=0 archive_errors=0 stopped_reason=archive_tail_reached
+[historical] completed source=azertag.az
+[historical] 2026-04-22 07:52:21 source=azertag.az max_pages=0 stop_empty=3
+backfill_complete source=azertag.az pages_scanned=933 last_page=3878395 listing_candidates=481 inserted_articles=481 updated_articles=0 skipped_existing=0 archive_errors=0 stopped_reason=archive_tail_reached
+[historical] completed source=azertag.az
+[historical]  source=azertag.az attempt=1/5 max_pages=0 stop_empty=3 wait_for_live=600
+[historical] source=azertag.az failed attempt=1; sleeping 30s before retry
+[historical] 2026-04-22T10:28:46+04:00 source=azertag.az attempt=1/5 max_pages=0 stop_empty=3 wait_for_live=600
+[historical] source=azertag.az failed attempt=1; sleeping 30s before retry
+[historical]  source=azertag.az attempt=2/5 max_pages=0 stop_empty=3 wait_for_live=600
+[historical] source=azertag.az failed attempt=2; sleeping 30s before retry
+[historical] 2026-04-22T10:29:19+04:00 source=azertag.az attempt=2/5 max_pages=0 stop_empty=3 wait_for_live=600
+[historical] source=azertag.az failed attempt=2; sleeping 30s before retry
+[historical]  source=azertag.az attempt=3/5 max_pages=0 stop_empty=3 wait_for_live=600
+[historical] source=azertag.az failed attempt=3; sleeping 30s before retry
+[historical] 2026-04-22T10:29:51+04:00 source=azertag.az attempt=3/5 max_pages=0 stop_empty=3 wait_for_live=600
+[historical] source=azertag.az failed attempt=3; sleeping 30s before retry
+[historical] 2026-04-22T10:29:59+04:00 source=azertag.az attempt=1/5 max_pages=0 stop_empty=3 wait_for_live=600
+[historical] source=azertag.az failed attempt=1; sleeping 30s before retry
+[historical] 2026-04-22T10:30:32+04:00 source=azertag.az attempt=2/5 max_pages=0 stop_empty=3 wait_for_live=600

@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────────────────────
-# telegram_backfill.sh — Bütün Telegram kanallarının TAM tarixçəsini çəkir.
-#
-# Hər kanalın ən qədim mesajına qədər geriyə gedir. Bitdikdən sonra çıxır.
-# Kaldığı yerdən davam edir (upsert sayəsində təkrarlanma olmaz).
-#
-# İstifadə:
-#   ./telegram_backfill.sh
-# ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +11,14 @@ export PYTHONPATH="$SCRIPT_DIR:$SCRIPT_DIR/src"
 
 PYTHON=".venv/bin/python"
 if [ ! -f "$PYTHON" ]; then PYTHON="python3"; fi
+
+if [ "${ALLOW_PARALLEL_TELEGRAM_BACKFILL:-0}" != "1" ] && docker compose ps telegram-worker 2>/dev/null | grep -q " Up "; then
+    echo "telegram_backfill_refused managed_telegram_worker_running=true"
+    echo "telegram-worker service artıq historical -> live axınını özü idarə edir."
+    echo "Manual telegram_backfill.sh parallel işə salınmır ki, duplicate və checkpoint qarışıqlığı yaranmasın."
+    echo "Lazımdırsa əvvəl 'docker compose stop telegram-worker' edin və sonra ALLOW_PARALLEL_TELEGRAM_BACKFILL=1 ilə manual run edin."
+    exit 2
+fi
 
 echo "=== Telegram Full Backfill Başladı ==="
 echo "Bütün kanalların TAM tarixçəsi çəkiləcək."

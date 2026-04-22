@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from news_ingestor.db.models import NewsRecord, Source, uuid_str
 from news_ingestor.schemas import AuditPayload, NormalizedNewsPayload, RawIngestPayload
+from news_ingestor.utils.time import utc_now
 
 
 class Repository:
@@ -25,12 +26,15 @@ class Repository:
     ) -> Source:
         source = await self.get_source_by_key(source_key)
         if source is None:
+            now = utc_now()
             source = Source(
                 id=uuid_str(),
                 record_kind="source",
                 source_key=source_key,
                 source_item_id="",
                 desired_state="running",
+                created_at=now,
+                updated_at=now,
             )
             self.session.add(source)
             await self.session.flush()
@@ -51,7 +55,10 @@ class Repository:
         return result.scalar_one_or_none()
 
     async def list_sources(self, *, source_type: str = "", desired_state: str = "") -> Sequence[Source]:
-        query = select(Source).where(Source.record_kind == "source").order_by(Source.created_at.asc())
+        query = select(Source).where(Source.record_kind == "source").order_by(
+            func.coalesce(Source.created_at, Source.updated_at).asc(),
+            Source.source_key.asc(),
+        )
         if desired_state:
             query = query.where(Source.desired_state == desired_state)
         result = await self.session.execute(query)
@@ -101,6 +108,8 @@ class Repository:
             "body_text": "",
             "desired_state": "running",
             "last_message_id": 0,
+            "created_at": payload.fetched_at,
+            "updated_at": payload.fetched_at,
         }
         statement = (
             pg_insert(NewsRecord)
@@ -112,6 +121,8 @@ class Repository:
                     "fetched_at": values["fetched_at"],
                     "published_at": values["published_at"],
                     "origin_url": values["origin_url"],
+                    "created_at": func.coalesce(NewsRecord.created_at, values["created_at"]),
+                    "updated_at": values["updated_at"],
                 },
             )
             .returning(NewsRecord.id)
@@ -136,6 +147,7 @@ class Repository:
                 source_item_id=payload.source_item_id,
                 body_text=payload.body_text,
                 published_at=payload.published_at,
+                updated_at=payload.ingested_at,
             )
             .returning(NewsRecord.id)
         )
@@ -161,9 +173,28 @@ class Repository:
         if numeric_order:
             query = query.order_by(cast(NewsRecord.source_item_id, BigInteger).desc())
         else:
-            query = query.order_by(NewsRecord.published_at.desc(), NewsRecord.created_at.desc())
+            query = query.order_by(
+                NewsRecord.published_at.desc(),
+                func.coalesce(
+                    NewsRecord.created_at,
+                    NewsRecord.updated_at,
+                    NewsRecord.fetched_at,
+                ).desc(),
+            )
         result = await self.session.execute(query.limit(limit))
         return [item for item in result.scalars().all()]
+
+    async def has_news_for_source(self, source_id: str) -> bool:
+        source = await self.get_source_by_id(source_id)
+        if source is None:
+            return False
+        result = await self.session.scalar(
+            select(func.count()).select_from(NewsRecord).where(
+                NewsRecord.record_kind == "news",
+                NewsRecord.source_key == source.source_key,
+            )
+        )
+        return bool(result)
 
     async def min_source_item_id(self, source_id: str) -> int:
         """Return the smallest numeric source_item_id for this source, or 0."""

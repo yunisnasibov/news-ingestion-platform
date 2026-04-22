@@ -136,11 +136,20 @@ class AzertagBackfillService:
 
 
 
+class DummyBackfillService:
+    def __init__(self, source_name: str):
+        self.source_name = source_name
+    def run(self, **kwargs) -> BackfillSummary:
+        return BackfillSummary(
+            source_name=self.source_name,
+            stopped_reason="historical_backfill_not_supported_for_source"
+        )
+
 def build_backfill_service(
     settings: Settings,
     database: Database,
     source_name: str,
 ):
     if source_name != AzertagClient.source_name:
-        raise SystemExit(f"historical_backfill_not_supported_for_source={source_name}")
+        return DummyBackfillService(source_name)
     return AzertagBackfillService(settings, database, AzertagClient(settings))

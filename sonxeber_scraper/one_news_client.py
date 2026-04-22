@@ -91,7 +91,7 @@ class OneNewsClient:
             raise ValueError(f"Article unavailable ({response.status_code}) for {candidate.url}")
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, "lxml")
+        soup = BeautifulSoup(response.content, "lxml")
         final_url = normalize_url(response.url)
         canonical_url = self._extract_canonical_url(soup, final_url)
         if not canonical_url or not is_valid_one_news_article_url(canonical_url):
@@ -265,7 +265,7 @@ class OneNewsClient:
             allow_redirects=True,
         )
         response.raise_for_status()
-        return BeautifulSoup(response.text, "lxml"), normalize_url(response.url)
+        return BeautifulSoup(response.content, "lxml"), normalize_url(response.url)
 
     def _extract_canonical_url(self, soup: BeautifulSoup, final_url: str) -> str:
         node = soup.select_one('link[rel="canonical"]')

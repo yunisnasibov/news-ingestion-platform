@@ -18,3 +18,4 @@ data/locks/
 scratch_test*.py
 scratch/
 full_system_test.py
+.venv-wsl

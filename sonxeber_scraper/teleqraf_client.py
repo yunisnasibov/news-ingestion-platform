@@ -238,7 +238,7 @@ class TeleqrafClient:
             allow_redirects=True,
         )
         response.raise_for_status()
-        return BeautifulSoup(response.text, "lxml"), normalize_url(response.url)
+        return BeautifulSoup(response.content, "lxml"), normalize_url(response.url)
 
     def _extract_canonical_url(self, soup: BeautifulSoup, final_url: str) -> str:
         node = soup.select_one('link[rel="canonical"]')

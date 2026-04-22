@@ -66,6 +66,12 @@ class RuntimeStateStore:
 
         self._mutate_state(mutate)
 
+    def clear_all(self) -> None:
+        def mutate(payload: dict[str, dict[str, Any]]) -> None:
+            payload.clear()
+
+        self._mutate_state(mutate)
+
     def annotate(self, sources: list[Any]) -> None:
         payload = self._read_state()
         for source in sources:

@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────────────────────
-# telegram_live.sh — Əvvəlcə backfill-i çalışdırır, bitdikdən sonra
-# avtomatik olaraq canlı (live) Telegram worker-ə keçir.
-#
-# İstifadə:
-#   ./telegram_live.sh
-#
-# Bu script:
-#   1) telegram_backfill.sh ilə eyni işi görər (tam tarixçə çəkir)
-#   2) Backfill bitdikdən sonra run-telegram-worker ilə canlı dinləməyə başlayar
-# ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -22,6 +11,14 @@ export PYTHONPATH="$SCRIPT_DIR:$SCRIPT_DIR/src"
 
 PYTHON=".venv/bin/python"
 if [ ! -f "$PYTHON" ]; then PYTHON="python3"; fi
+
+if [ "${ALLOW_PARALLEL_TELEGRAM_BACKFILL:-0}" != "1" ] && docker compose ps telegram-worker 2>/dev/null | grep -q " Up "; then
+    echo "telegram_live_refused managed_telegram_worker_running=true"
+    echo "telegram-worker service artıq historical -> live axınını özü idarə edir."
+    echo "Manual telegram_live.sh parallel işə salınmır ki, duplicate və session toqquşması yaranmasın."
+    echo "Lazımdırsa əvvəl 'docker compose stop telegram-worker' edin və sonra ALLOW_PARALLEL_TELEGRAM_BACKFILL=1 ilə manual run edin."
+    exit 2
+fi
 
 echo "╔══════════════════════════════════════════════════╗"
 echo "║  MƏRHƏLƏ 1: Telegram Full Backfill               ║"

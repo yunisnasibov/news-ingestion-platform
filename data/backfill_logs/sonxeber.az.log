@@ -1,0 +1,5 @@
+[historical]  source=sonxeber.az max_pages=2 stop_empty=3
+backfill_complete source=sonxeber.az pages_scanned=2 last_page=2 listing_candidates=30 inserted_articles=0 updated_articles=0 skipped_existing=30 archive_errors=0 stopped_reason=max_batches_reached
+[historical] completed source=sonxeber.az
+[historical] 2026-04-22 03:35:48 source=sonxeber.az max_pages=0 stop_empty=3
+[historical] 2026-04-22 08:11:12 source=sonxeber.az max_pages=0 stop_empty=3

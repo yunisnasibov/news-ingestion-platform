@@ -1,0 +1,51 @@
+[historical] 2026-04-22T10:29:59+04:00 source=azertag.az attempt=1/5 max_pages=0 stop_empty=3 wait_for_live=600
+ Container new_ingestor-postgres-1 Running 
+ Container new_ingestor-postgres-1 Waiting 
+ Container new_ingestor-postgres-1 Healthy 
+ Container new_ingestor-web-scraper-run-1bd90b361f6e Creating 
+ Container new_ingestor-web-scraper-run-1bd90b361f6e Created 
+Traceback (most recent call last):
+  File "/app/sonxeber_scraper/source_locks.py", line 125, in _create_lock
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+FileExistsError: [Errno 17] File exists: '/app/data/locks/azertag.az.backfill.lock'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/app/sonxeber_scraper/__main__.py", line 3, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/app/sonxeber_scraper/cli.py", line 122, in main
+    summary = backfill_service.run(
+        max_pages=args.max_pages,
+        stop_after_empty_pages=args.stop_empty_pages,
+        wait_for_live_seconds=args.wait_for_live_seconds,
+    )
+  File "/app/sonxeber_scraper/historical_backfill.py", line 115, in run
+    with self.locks.backfill_lock(
+         ~~~~~~~~~~~~~~~~~~~~~~~~^
+        self.client.source_name,
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+        wait_for_live_seconds=wait_for_live_seconds,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ):
+    ^
+  File "/usr/local/lib/python3.13/contextlib.py", line 141, in __enter__
+    return next(self.gen)
+  File "/app/sonxeber_scraper/source_locks.py", line 78, in backfill_lock
+    self._create_lock(paths.backfill, source_name=source_name, lock_kind="backfill")
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/sonxeber_scraper/source_locks.py", line 127, in _create_lock
+    raise SourceLockError(f"lock_already_exists path={path}") from exc
+sonxeber_scraper.source_locks.SourceLockError: lock_already_exists path=/app/data/locks/azertag.az.backfill.lock
+
+[historical] source=azertag.az failed attempt=1; sleeping 30s before retry
+[historical] 2026-04-22T10:30:32+04:00 source=azertag.az attempt=2/5 max_pages=0 stop_empty=3 wait_for_live=600
+ Container new_ingestor-postgres-1 Running 
+ Container new_ingestor-postgres-1 Waiting 
+ Container new_ingestor-postgres-1 Healthy 
+ Container new_ingestor-web-scraper-run-53313496d1f6 Creating 
+ Container new_ingestor-web-scraper-run-53313496d1f6 Created 
+

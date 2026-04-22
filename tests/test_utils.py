@@ -18,6 +18,8 @@ from sonxeber_scraper.utils import (
     extract_islam_slug,
     extract_islamazeri_image_article_id,
     extract_islamazeri_slug,
+    extract_iqtisadiyyat_article_id,
+    extract_iqtisadiyyat_slug,
     extract_milli_article_id,
     extract_milli_category_slug,
     extract_metbuat_article_id,
@@ -47,6 +49,7 @@ from sonxeber_scraper.utils import (
     is_valid_ikisahil_article_url,
     is_valid_islam_article_url,
     is_valid_islamazeri_article_url,
+    is_valid_iqtisadiyyat_article_url,
     is_valid_milli_article_url,
     is_valid_sia_article_url,
     is_valid_siyasetinfo_article_url,
@@ -62,6 +65,7 @@ from sonxeber_scraper.utils import (
     parse_azerbaijani_date,
     parse_azerbaijani_datetime,
     parse_islamazeri_datetime,
+    parse_iqtisadiyyat_datetime,
     parse_one_news_datetime,
     parse_rfc2822_datetime,
     parse_yeniazerbaycan_datetime,
@@ -178,6 +182,15 @@ class UtilsTestCase(unittest.TestCase):
             ),
             "kecmis-hakim-yeni-pesesinde-milyonlar-qazanir",
         )
+
+    def test_extract_iqtisadiyyat_article_id(self) -> None:
+        url = "https://iqtisadiyyat.az/az/post/q-rg-z-stan-2100-cu-il-q-d-r-buzlaqlar-n-n-80-ni-itir-bil-r-170995"
+        self.assertEqual(extract_iqtisadiyyat_article_id(url), 170995)
+        self.assertEqual(
+            extract_iqtisadiyyat_slug(url),
+            "q-rg-z-stan-2100-cu-il-q-d-r-buzlaqlar-n-n-80-ni-itir-bil-r",
+        )
+        self.assertTrue(is_valid_iqtisadiyyat_article_url(url))
 
     def test_extract_milli_article_id(self) -> None:
         self.assertEqual(
@@ -496,6 +509,16 @@ class UtilsTestCase(unittest.TestCase):
         self.assertEqual(
             parse_one_news_datetime("2026-04-09T12:09:00+04:00"),
             "2026-04-09T12:09:00+04:00",
+        )
+
+    def test_parse_iqtisadiyyat_datetime(self) -> None:
+        self.assertEqual(
+            parse_iqtisadiyyat_datetime("2026-04-22T11:01:00.000Z"),
+            "2026-04-22T11:01:00+00:00",
+        )
+        self.assertEqual(
+            parse_iqtisadiyyat_datetime("Wed Apr 22 2026 15:01:00 GMT+0400 (Azerbaijan Standard Time)"),
+            "2026-04-22T15:01:00+04:00",
         )
 
     def test_parse_azertag_datetime(self) -> None:

@@ -219,7 +219,7 @@ class OxuClient:
                 params={"date": last_timestamp, "oldest": "1"},
                 timeout=self.settings.request_timeout_seconds,
             )
-            batch_soup = BeautifulSoup(response.text, "lxml")
+            batch_soup = BeautifulSoup(response.content, "lxml")
             blocks = batch_soup.select(".index-post-block")
             if not blocks:
                 break
@@ -280,7 +280,7 @@ class OxuClient:
             timeout=self.settings.request_timeout_seconds,
             allow_redirects=True,
         )
-        return BeautifulSoup(response.text, "lxml"), normalize_url(str(response.url))
+        return BeautifulSoup(response.content, "lxml"), normalize_url(str(response.url))
 
     def _request(self, url: str, **kwargs):
         last_error: Exception | None = None

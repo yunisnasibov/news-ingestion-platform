@@ -255,7 +255,7 @@ class MetbuatClient:
             allow_redirects=True,
         )
         response.raise_for_status()
-        return BeautifulSoup(response.text, "lxml"), normalize_url(response.url)
+        return BeautifulSoup(response.content, "lxml"), normalize_url(response.url)
 
     def _is_not_found_page(self, soup: BeautifulSoup) -> bool:
         title_node = soup.select_one("title")

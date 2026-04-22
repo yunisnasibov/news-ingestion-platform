@@ -91,7 +91,7 @@ class SiaClient:
             raise ValueError(f"Article unavailable ({response.status_code}) for {candidate.url}")
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, "lxml")
+        soup = BeautifulSoup(response.content, "lxml")
         final_url = normalize_url(response.url)
         canonical_url = self._extract_canonical_url(soup, final_url)
         if not canonical_url or not is_valid_sia_article_url(canonical_url):
@@ -314,7 +314,7 @@ class SiaClient:
             allow_redirects=True,
         )
         response.raise_for_status()
-        return BeautifulSoup(response.text, "lxml"), normalize_url(response.url)
+        return BeautifulSoup(response.content, "lxml"), normalize_url(response.url)
 
     def _extract_primary_content(self, article: Tag) -> Tag | None:
         best_container: Tag | None = None

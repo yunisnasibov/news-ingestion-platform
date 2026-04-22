@@ -53,7 +53,7 @@ AZXEBER_ARTICLE_PATH_PATTERN = re.compile(
     r"^/az/(?P<slug>[^/?#]+)/(?P<category>[^/?#]+)/?$"
 )
 APA_ARTICLE_PATH_PATTERN = re.compile(
-    r"^/(?P<category>[^/?#]+)/(?P<slug>[^/?#]+)-(?P<article_id>\d+)/?$"
+    r"^/(?P<category>[^/?#]+)/(?: (?P<slug>[^/?#]+)-)?(?P<article_id>-?\d+)/?$".replace(" ", "")
 )
 XEBERLER_ARTICLE_PATH_PATTERN = re.compile(
     r"^/new/details/(?P<slug>[^/?#]+?)--(?P<article_id>\d+)\.htm/?$"
@@ -75,6 +75,9 @@ SIA_ARTICLE_PATH_PATTERN = re.compile(
 )
 ONE_NEWS_ARTICLE_PATH_PATTERN = re.compile(
     r"^/az/news/(?P<article_id>\d{17})(?:-(?P<slug>[^/?#]+))?/?$"
+)
+IQTISADIYYAT_ARTICLE_PATH_PATTERN = re.compile(
+    r"^/az/post/(?P<slug>[^/?#]+)-(?P<article_id>\d+)/?$"
 )
 OXU_SHORTLINK_PATTERN = re.compile(r"/(?P<article_id>\d{4,})/?$")
 REPORT_SHORTLINK_PATTERN = re.compile(r"(?:^|/)(?P<article_id>\d{4,})(?:/)?$")
@@ -378,6 +381,20 @@ def extract_one_news_slug(url: str) -> str:
     return match.group("slug") or ""
 
 
+def extract_iqtisadiyyat_article_id(url: str) -> int | None:
+    match = IQTISADIYYAT_ARTICLE_PATH_PATTERN.match(urlparse(url).path)
+    if not match:
+        return None
+    return int(match.group("article_id"))
+
+
+def extract_iqtisadiyyat_slug(url: str) -> str:
+    match = IQTISADIYYAT_ARTICLE_PATH_PATTERN.match(urlparse(url).path)
+    if not match:
+        return ""
+    return match.group("slug") or ""
+
+
 def parse_azerbaijani_date(raw_value: str) -> str:
     cleaned = normalize_space(raw_value.lower())
     match = DATE_PATTERN.search(cleaned)
@@ -572,6 +589,27 @@ def parse_one_news_datetime(raw_value: str) -> str:
     return parsed.isoformat()
 
 
+def parse_iqtisadiyyat_datetime(raw_value: str) -> str:
+    cleaned = normalize_space(raw_value.replace("(Azerbaijan Standard Time)", "").strip())
+    if not cleaned:
+        return ""
+
+    iso_candidate = cleaned.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(iso_candidate)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=AZERBAIJAN_TZ)
+        return parsed.isoformat()
+
+    try:
+        return datetime.strptime(cleaned, "%a %b %d %Y %H:%M:%S GMT%z").isoformat()
+    except ValueError:
+        return parse_rfc2822_datetime(cleaned)
+
+
 def parse_iso_or_dotted_date(raw_value: str) -> str:
     cleaned = normalize_space(raw_value)
     if not cleaned:
@@ -706,3 +744,8 @@ def is_valid_sia_article_url(url: str) -> bool:
 def is_valid_one_news_article_url(url: str) -> bool:
     path = urlparse(url).path
     return ONE_NEWS_ARTICLE_PATH_PATTERN.match(path) is not None
+
+
+def is_valid_iqtisadiyyat_article_url(url: str) -> bool:
+    path = urlparse(url).path
+    return IQTISADIYYAT_ARTICLE_PATH_PATTERN.match(path) is not None
